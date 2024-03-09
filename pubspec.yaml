@@ -1,0 +1,13 @@
+name: cace
+description: Comprehensive asynchronous contexts for errors. Separate the handling of errors from attaching contexts to them.
+
+repository: https://github.com/mstniy/cace.dart
+
+version: 0.0.1
+
+environment:
+  sdk: ^3.1.2
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.25.2
