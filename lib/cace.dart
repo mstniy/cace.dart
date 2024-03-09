@@ -17,10 +17,13 @@ class _CaceGlobalCtx {
   }
 }
 
-class _CaceErrorEnvelope {
-  Object e;
-  StackTrace s;
-  _CaceErrorEnvelope(this.e, this.s);
+class _CaceEnvelope<T> {
+  bool isError;
+  T? value;
+  Object? e;
+  StackTrace? s;
+  _CaceEnvelope.value(this.value) : isError = false;
+  _CaceEnvelope.exc(this.e, this.s) : isError = true;
 }
 
 /// A zone that remembers the context passed to [withContext]
@@ -33,35 +36,45 @@ final _caceZone = ZoneSpecification(
   },
 );
 
-T withContext<T, C>(C c, T Function() f) {
+Future<T> withContext<T, C>(C c, Future<T> Function() f) {
   final zone = Zone.current.fork(
       specification: _caceZone,
       zoneValues: {_CaceGlobalCtx._zoneStorageKey: c});
 
   try {
-    final res = zone.run(() {
-      final res = f();
-      if (res is Future) {
-        // [Future] does not allow errors created in one zone to be caught in another
-        // So wrap any errors in a proxy type and unwrap in the parent zone
-        return res.catchError((e, s) => _CaceErrorEnvelope(e, s)) as T;
+    return zone.run(() {
+      // [Future] does not allow errors created in one zone to be caught in another
+      // So wrap any errors in a proxy type and unwrap in the parent zone
+      return f().then((v) => _CaceEnvelope.value(v),
+          onError: (e, s) => _CaceEnvelope<T>.exc(e, s));
+    }).then((x) {
+      if (x.isError) {
+        _CaceGlobalCtx._appendContextToError(x.e!, c);
+        Error.throwWithStackTrace(x.e!, x.s!);
       }
-      return res;
+      return x.value as T;
     });
-    if (res is Future) {
-      return res.then((x) {
-        if (x is _CaceErrorEnvelope) {
-          _CaceGlobalCtx._appendContextToError(x.e, c);
-          Error.throwWithStackTrace(x.e, x.s);
-        }
-        return x;
-      }) as T;
-    }
-    return res;
   } catch (e) {
     _CaceGlobalCtx._appendContextToError(e, c);
     rethrow;
   }
+}
+
+T withContextSync<T, C>(C c, T Function() f) {
+  final zone = Zone.current.fork(
+      specification: _caceZone,
+      zoneValues: {_CaceGlobalCtx._zoneStorageKey: c});
+
+  late T res;
+  try {
+    res = zone.run(f);
+  } catch (e) {
+    _CaceGlobalCtx._appendContextToError(e, c);
+    rethrow;
+  }
+  assert(res is! Future,
+      "`future`s returned by functions called inside `withContextSync` misbehave if they complete with errors");
+  return res;
 }
 
 List<Object?>? getContextFor(Object exc) {
